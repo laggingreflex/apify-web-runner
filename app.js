@@ -7,7 +7,8 @@ ReactDOM.createRoot(rootEl).render(<App />);
 function App() {
   // Core inputs
   const [token, setToken] = useState(() => localStorage.getItem('apifyToken') || '');
-  const [actorId, setActorId] = useState('apify/hello-world');
+  // Initialize actorId from localStorage (fallback to default example actor)
+  const [actorId, setActorId] = useState(() => localStorage.getItem('apifyActorId') || 'apify/hello-world');
   const [outputKey, setOutputKey] = useState('OUTPUT');
 
   // Actor details and dynamic input schema/values
@@ -41,6 +42,13 @@ function App() {
       if (token) localStorage.setItem('apifyToken', token);
     } catch (_) {}
   }, [token]);
+
+  // Persist actorId similar to token
+  useEffect(() => {
+    try {
+      if (actorId) localStorage.setItem('apifyActorId', actorId);
+    } catch (_) {}
+  }, [actorId]);
 
   async function handleLoadActor(e) {
     e?.preventDefault?.();

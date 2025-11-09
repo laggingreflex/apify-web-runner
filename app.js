@@ -129,8 +129,9 @@ function App() {
               valuesMap[key] = String(v);
             }
           } else if (entry.type === 'array') {
-            if (Array.isArray(v)) valuesMap[key] = v.join(', ');
-            else if (typeof v === 'string') valuesMap[key] = v;
+            // Store arrays one-per-line for improved textarea UX
+            if (Array.isArray(v)) valuesMap[key] = v.map(x => (x == null ? '' : String(x))).join('\n');
+            else if (typeof v === 'string') valuesMap[key] = v; // could be newline-delimited or JSON
             else valuesMap[key] = '';
           } else if (entry.type === 'boolean') {
             valuesMap[key] = v == null ? false : Boolean(v);
@@ -153,7 +154,8 @@ function App() {
           for (const [key, defVal] of Object.entries(example)) {
             if (Array.isArray(defVal)) {
               schemaMap[key] = { type: 'array' };
-              valuesMap[key] = defVal.join(', ');
+              // Example defaults displayed one-per-line
+              valuesMap[key] = defVal.map(x => (x == null ? '' : String(x))).join('\n');
             } else if (defVal && typeof defVal === 'object') {
               schemaMap[key] = { type: 'object' };
               try {
@@ -228,26 +230,28 @@ function App() {
           if (typeof v === 'string') {
             const trimmed = v.trim();
             if (trimmed === '') {
-              /* skip */
+              /* skip empty */
             } else if (trimmed.startsWith('[')) {
+              // Allow JSON array input
               try {
                 const arr = JSON.parse(trimmed);
                 if (Array.isArray(arr)) input[key] = arr;
                 else throw new Error();
               } catch {
-                throw new Error(`Field "${key}" must be a comma-separated list or JSON array.`);
+                throw new Error(`Field "${key}" must be one-per-line or a valid JSON array.`);
               }
             } else {
-              const parts = trimmed
-                .split(',')
-                .map(s => s.trim())
-                .filter(Boolean);
+              // Prefer newline separation; fallback to comma if single line
+              const rawParts = /\r|\n/.test(trimmed) ? trimmed.split(/[\r\n]+/) : trimmed.split(',');
+              const parts = rawParts.map(s => s.trim()).filter(Boolean);
               if (sch.itemsType === 'number' || sch.itemsType === 'integer') {
                 const nums = parts.map(p => Number(p));
                 if (nums.some(n => Number.isNaN(n))) throw new Error(`Field "${key}" must contain only numbers.`);
                 input[key] = nums;
               } else if (sch.itemsType === 'boolean') {
-                const bools = parts.map(p => p.toLowerCase()).map(p => (p === 'true' ? true : p === 'false' ? false : p));
+                const bools = parts
+                  .map(p => p.toLowerCase())
+                  .map(p => (p === 'true' ? true : p === 'false' ? false : p));
                 if (bools.some(b => b !== true && b !== false)) throw new Error(`Field "${key}" must contain only booleans (true/false).`);
                 input[key] = bools;
               } else {
@@ -462,11 +466,14 @@ function App() {
                         placeholder={sch.placeholder != null ? safeStringify(sch.placeholder) : undefined}
                       />
                     ) : sch.type === 'array' ? (
-                      <input
-                        type='text'
+                      <textarea
                         value={inputValues[key]}
                         onChange={e => updateInputValue(key, e.target.value, 'array')}
-                        placeholder={sch.placeholder != null ? String(sch.placeholder) : 'comma, separated, values'}
+                        placeholder={
+                          sch.placeholder != null
+                            ? String(sch.placeholder)
+                            : 'Enter one item per line (or paste JSON array)'
+                        }
                       />
                     ) : (
                       <input

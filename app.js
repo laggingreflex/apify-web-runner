@@ -13,8 +13,10 @@ function App() {
   // Actor details and dynamic input schema/values
   const [actorDetails, setActorDetails] = useState(null);
   const [exampleInputBody, setExampleInputBody] = useState('');
-  const [inputSchema, setInputSchema] = useState({}); // { key: 'string'|'number'|'boolean'|'json' }
-  const [inputValues, setInputValues] = useState({}); // { key: value|stringified }
+  // schema map: key -> { type, itemsType, enum, description, required, placeholder, raw }
+  const [inputSchema, setInputSchema] = useState({});
+  const [inputValues, setInputValues] = useState({});
+  const [schemaSource, setSchemaSource] = useState(null); // 'build' | 'example' | null
 
   // Run and outputs
   const [clientInfo, setClientInfo] = useState(null);
@@ -35,7 +37,6 @@ function App() {
   }, [token]);
 
   useEffect(() => {
-    // Persist token for convenience
     try {
       if (token) localStorage.setItem('apifyToken', token);
     } catch (_) {}
@@ -48,6 +49,9 @@ function App() {
     setKvRecord(null);
     setDatasetItems([]);
     setLogs([]);
+    setInputSchema({});
+    setInputValues({});
+    setSchemaSource(null);
     if (!client) {
       addLog('Error: ApifyClient not initialized.');
       return;
@@ -68,35 +72,103 @@ function App() {
       const body = a?.exampleRunInput?.body || '';
       setExampleInputBody(body);
 
-      // Build dynamic schema/values from example input
-      let example = {};
+      // Attempt to fetch build input schema
+      let schemaProps = null;
+      let requiredList = [];
       try {
-        example = body ? JSON.parse(body) : {};
-      } catch (err) {
-        addLog('Warning: exampleRunInput.body is not valid JSON. Showing raw string.');
+        addLog('Getting input schema from latest build...');
+        const latestBuildId = a?.taggedBuilds?.latest?.buildId;
+        console.debug(`latestBuildId:`, latestBuildId);
+        if (latestBuildId) {
+          const build = await client.build(latestBuildId).get();
+          console.debug(`build:`, build);
+          // prefer actorDefinition path
+          schemaProps = build?.actorDefinition?.input?.properties || build?.inputSchema || build?.inputSchema?.properties || null;
+          requiredList = build?.actorDefinition?.input?.required || build?.inputSchema?.required || [];
+        } else {
+          addLog('No latest tagged build ID found.');
+        }
+      } catch (error) {
+        console.error(error);
+        addLog(`Couldn't get latest tagged build: ${error?.message || error}`);
       }
 
-      const newSchema = {};
-      const newValues = {};
-      if (example && typeof example === 'object') {
-        for (const [key, defVal] of Object.entries(example)) {
-          const t = typeof defVal;
-          if (t === 'string' || t === 'number' || t === 'boolean') {
-            newSchema[key] = t;
-            newValues[key] = defVal;
-          } else {
-            newSchema[key] = 'json';
+      const requiredSet = new Set(Array.isArray(requiredList) ? requiredList : []);
+      const schemaMap = {};
+      const valuesMap = {};
+
+      if (schemaProps && typeof schemaProps === 'object') {
+        setSchemaSource('build');
+        addLog('Using input schema from latest build.');
+        for (const [key, prop] of Object.entries(schemaProps)) {
+          const type = Array.isArray(prop.type) ? prop.type[0] : prop.type;
+          const entry = {
+            type: type || 'string',
+            itemsType: prop?.items ? (Array.isArray(prop.items.type) ? prop.items.type[0] : prop.items.type) : undefined,
+            enum: prop?.enum,
+            description: prop?.description,
+            required: requiredSet.has(key),
+            placeholder: prop?.placeholderValue ?? prop?.prefill,
+            raw: prop,
+          };
+          schemaMap[key] = entry;
+          const _default = prop?.default ?? prop?.placeholderValue ?? prop?.prefill;
+          let v = _default;
+          if (entry.type === 'object') {
             try {
-              newValues[key] = JSON.stringify(defVal, null, 2);
+              valuesMap[key] = v != null ? JSON.stringify(v, null, 2) : '';
             } catch {
-              newValues[key] = String(defVal);
+              valuesMap[key] = String(v);
+            }
+          } else if (entry.type === 'array') {
+            if (Array.isArray(v)) valuesMap[key] = v.join(', ');
+            else if (typeof v === 'string') valuesMap[key] = v;
+            else valuesMap[key] = '';
+          } else if (entry.type === 'boolean') {
+            valuesMap[key] = v == null ? false : Boolean(v);
+          } else if (entry.type === 'number' || entry.type === 'integer') {
+            valuesMap[key] = typeof v === 'number' ? v : v === undefined ? '' : Number(v);
+          } else {
+            valuesMap[key] = v ?? '';
+          }
+        }
+      } else {
+        setSchemaSource('example');
+        addLog('Falling back to exampleRunInput for dynamic fields.');
+        let example = {};
+        try {
+          example = body ? JSON.parse(body) : {};
+        } catch {
+          example = {};
+        }
+        if (example && typeof example === 'object') {
+          for (const [key, defVal] of Object.entries(example)) {
+            if (Array.isArray(defVal)) {
+              schemaMap[key] = { type: 'array' };
+              valuesMap[key] = defVal.join(', ');
+            } else if (defVal && typeof defVal === 'object') {
+              schemaMap[key] = { type: 'object' };
+              try {
+                valuesMap[key] = JSON.stringify(defVal, null, 2);
+              } catch {
+                valuesMap[key] = String(defVal);
+              }
+            } else if (typeof defVal === 'boolean') {
+              schemaMap[key] = { type: 'boolean' };
+              valuesMap[key] = defVal;
+            } else if (typeof defVal === 'number') {
+              schemaMap[key] = { type: 'number' };
+              valuesMap[key] = defVal;
+            } else {
+              schemaMap[key] = { type: 'string' };
+              valuesMap[key] = defVal ?? '';
             }
           }
         }
       }
-      setInputSchema(newSchema);
-      setInputValues(newValues);
 
+      setInputSchema(schemaMap);
+      setInputValues(valuesMap);
       addLog('Actor loaded. Configure inputs below, then run.');
     } catch (err) {
       console.error(err);
@@ -107,7 +179,15 @@ function App() {
   }
 
   function updateInputValue(key, rawVal, type) {
-    setInputValues(prev => ({ ...prev, [key]: type === 'number' ? (rawVal === '' ? '' : Number(rawVal)) : type === 'boolean' ? Boolean(rawVal) : rawVal }));
+    if (type === 'number' || type === 'integer') {
+      setInputValues(prev => ({ ...prev, [key]: rawVal === '' ? '' : Number(rawVal) }));
+      return;
+    }
+    if (type === 'boolean') {
+      setInputValues(prev => ({ ...prev, [key]: rawVal === true || rawVal === 'true' }));
+      return;
+    }
+    setInputValues(prev => ({ ...prev, [key]: rawVal }));
   }
 
   async function handleRunActor(e) {
@@ -121,30 +201,70 @@ function App() {
       return;
     }
 
-    // Build input object based on schema
     const input = {};
     try {
-      for (const [key, type] of Object.entries(inputSchema)) {
+      for (const [key, sch] of Object.entries(inputSchema)) {
+        const type = sch.type;
         const v = inputValues[key];
-        if (type === 'json') {
-          if (typeof v === 'string') {
+        if (type === 'object') {
+          if (typeof v === 'string' && v.trim() !== '') {
             try {
               input[key] = JSON.parse(v);
-            } catch (err) {
+            } catch {
               throw new Error(`Field "${key}" contains invalid JSON.`);
             }
-          } else {
-            input[key] = v; // already object/array
+          } else if (v && typeof v === 'object') {
+            input[key] = v;
           }
-        } else if (type === 'number') {
+        } else if (type === 'array') {
+          if (typeof v === 'string') {
+            const trimmed = v.trim();
+            if (trimmed === '') {
+              /* skip */
+            } else if (trimmed.startsWith('[')) {
+              try {
+                const arr = JSON.parse(trimmed);
+                if (Array.isArray(arr)) input[key] = arr;
+                else throw new Error();
+              } catch {
+                throw new Error(`Field "${key}" must be a comma-separated list or JSON array.`);
+              }
+            } else {
+              const parts = trimmed
+                .split(',')
+                .map(s => s.trim())
+                .filter(Boolean);
+              if (sch.itemsType === 'number' || sch.itemsType === 'integer') {
+                const nums = parts.map(p => Number(p));
+                if (nums.some(n => Number.isNaN(n))) throw new Error(`Field "${key}" must contain only numbers.`);
+                input[key] = nums;
+              } else if (sch.itemsType === 'boolean') {
+                const bools = parts.map(p => p.toLowerCase()).map(p => (p === 'true' ? true : p === 'false' ? false : p));
+                if (bools.some(b => b !== true && b !== false)) throw new Error(`Field "${key}" must contain only booleans (true/false).`);
+                input[key] = bools;
+              } else {
+                input[key] = parts;
+              }
+            }
+          } else if (Array.isArray(v)) {
+            input[key] = v;
+          }
+        } else if (type === 'number' || type === 'integer') {
           if (v === '' || Number.isNaN(Number(v))) throw new Error(`Field "${key}" must be a number.`);
           input[key] = Number(v);
         } else if (type === 'boolean') {
           input[key] = Boolean(v);
         } else {
-          input[key] = v;
+          // string or other
+          const s = typeof v === 'string' ? v.trim() : v;
+          if (s !== '' && s != null) input[key] = s;
         }
       }
+      const missing = Object.entries(inputSchema)
+        .filter(([k, sch]) => sch.required)
+        .map(([k]) => k)
+        .filter(k => !(k in input));
+      if (missing.length) throw new Error(`Missing required fields: ${missing.join(', ')}`);
     } catch (err) {
       addLog(err.message);
       return;
@@ -153,7 +273,6 @@ function App() {
     setRun(null);
     setKvRecord(null);
     setDatasetItems([]);
-
     try {
       setLoading(true);
       addLog('Starting actor run...');
@@ -163,12 +282,10 @@ function App() {
       addLog(`Run cost (USD): ${r.usageTotalUsd}`);
       addLog(`Store ID: ${r.defaultKeyValueStoreId}`);
       addLog(`Dataset ID: ${r.defaultDatasetId}`);
-
       if (r.status !== 'SUCCEEDED') {
         addLog('Actor run did not succeed.');
         return;
       }
-      // Outputs are now fetched via a dedicated action in the Output section.
     } catch (err) {
       console.error(err);
       addLog(`Run error: ${err?.message || err}`);
@@ -190,7 +307,6 @@ function App() {
     setDatasetItems([]);
     try {
       setLoading(true);
-      // Fetch KV record (optional)
       if (run.defaultKeyValueStoreId && outputKey) {
         try {
           addLog('Fetching KV store output...');
@@ -204,7 +320,6 @@ function App() {
         addLog('No defaultKeyValueStoreId on run or missing Output Key.');
       }
 
-      // Fetch dataset items (optional)
       if (run.defaultDatasetId) {
         try {
           addLog('Fetching dataset items...');
@@ -282,6 +397,7 @@ function App() {
                 </pre>
               </details>
             )}
+            {schemaSource && <div className='small muted'>Schema source: {schemaSource}</div>}
           </fieldset>
         )}
 
@@ -290,33 +406,75 @@ function App() {
             <legend>Actor Input</legend>
             <div className='layoutTwo'>
               <div className='col'>
-                {Object.keys(inputSchema).length === 0 && <p className='muted small'>This actor doesn't define an example input. You can still run it without additional parameters.</p>}
-                {Object.entries(inputSchema).map(([key, type]) => (
+                {Object.keys(inputSchema).length === 0 && <p className='muted small'>This actor doesn't define an input schema or example input. You can still run it without parameters.</p>}
+                {Object.entries(inputSchema).map(([key, sch]) => (
                   <label key={key}>
                     <p>
-                      {key} <span className='muted'>({type})</span>
+                      {key}{' '}
+                      {sch.required && (
+                        <span title='required' className='muted'>
+                          *
+                        </span>
+                      )}{' '}
+                      <span className='muted'>
+                        ({sch.type}
+                        {sch.type === 'array' && sch.itemsType ? `<${sch.itemsType}>` : ''})
+                      </span>
                     </p>
-                    {type === 'boolean' ? (
+                    {sch.description && (
+                      <div className='small muted' style={{ marginTop: '-.25rem', marginBottom: '.25rem' }}>
+                        {sch.description}
+                      </div>
+                    )}
+                    {Array.isArray(sch.enum) && sch.enum.length ? (
+                      <select value={String(inputValues[key] ?? '')} onChange={e => updateInputValue(key, e.target.value, sch.type)}>
+                        <option value=''>— Select —</option>
+                        {sch.enum.map((opt, i) => (
+                          <option key={i} value={String(opt)}>
+                            {String(opt)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : sch.type === 'boolean' ? (
                       <select value={inputValues[key] ? 'true' : 'false'} onChange={e => updateInputValue(key, e.target.value === 'true', 'boolean')}>
                         <option value='false'>false</option>
                         <option value='true'>true</option>
                       </select>
-                    ) : type === 'number' ? (
-                      <input type='number' value={inputValues[key]} onChange={e => updateInputValue(key, e.target.value, 'number')} />
-                    ) : type === 'json' ? (
-                      <textarea value={inputValues[key]} onChange={e => updateInputValue(key, e.target.value, 'json')} />
+                    ) : sch.type === 'number' || sch.type === 'integer' ? (
+                      <input
+                        type='number'
+                        value={inputValues[key]}
+                        onChange={e => updateInputValue(key, e.target.value, sch.type)}
+                        placeholder={sch.placeholder != null ? String(sch.placeholder) : undefined}
+                      />
+                    ) : sch.type === 'object' ? (
+                      <textarea
+                        value={inputValues[key]}
+                        onChange={e => updateInputValue(key, e.target.value, 'object')}
+                        placeholder={sch.placeholder != null ? safeStringify(sch.placeholder) : undefined}
+                      />
+                    ) : sch.type === 'array' ? (
+                      <input
+                        type='text'
+                        value={inputValues[key]}
+                        onChange={e => updateInputValue(key, e.target.value, 'array')}
+                        placeholder={sch.placeholder != null ? String(sch.placeholder) : 'comma, separated, values'}
+                      />
                     ) : (
-                      <input type='text' value={inputValues[key]} onChange={e => updateInputValue(key, e.target.value, 'string')} />
+                      <input
+                        type='text'
+                        value={inputValues[key]}
+                        onChange={e => updateInputValue(key, e.target.value, 'string')}
+                        placeholder={sch.placeholder != null ? String(sch.placeholder) : undefined}
+                      />
                     )}
                   </label>
                 ))}
               </div>
-
               <div className='col'>
                 <button type='button' className='action' onClick={handleRunActor} disabled={loading}>
                   {loading ? 'Running…' : 'Run actor'}
                 </button>
-
                 {run && (
                   <div className='panel' style={{ marginTop: '.75rem' }}>
                     <div className={statusClass}>{run.status}</div>
@@ -352,7 +510,6 @@ function App() {
             <button type='button' className='action' onClick={handleFetchOutput} disabled={loading}>
               Fetch output
             </button>
-
             {(kvRecord || (datasetItems && datasetItems.length)) && (
               <div style={{ marginTop: '.75rem' }}>
                 {kvRecord && (

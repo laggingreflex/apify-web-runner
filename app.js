@@ -249,9 +249,7 @@ function App() {
                 if (nums.some(n => Number.isNaN(n))) throw new Error(`Field "${key}" must contain only numbers.`);
                 input[key] = nums;
               } else if (sch.itemsType === 'boolean') {
-                const bools = parts
-                  .map(p => p.toLowerCase())
-                  .map(p => (p === 'true' ? true : p === 'false' ? false : p));
+                const bools = parts.map(p => p.toLowerCase()).map(p => (p === 'true' ? true : p === 'false' ? false : p));
                 if (bools.some(b => b !== true && b !== false)) throw new Error(`Field "${key}" must contain only booleans (true/false).`);
                 input[key] = bools;
               } else {
@@ -357,7 +355,15 @@ function App() {
     run?.status === 'SUCCEEDED' ? 'statusBadge status-succeeded' : run?.status === 'RUNNING' ? 'statusBadge status-running' : run?.status ? 'statusBadge status-failed' : 'statusBadge';
 
   return (
-    <div>
+    <>
+      <h1>Apify Web Runner</h1>
+      <p>
+        Easily test out{' '}
+        <a href='https://apify.com/store' target='_blank' rel='noreferrer'>
+          Apify
+        </a>
+        {' '}actors
+      </p>
       <form onSubmit={handleLoadActor}>
         <fieldset>
           <legend>Apify Connection</legend>
@@ -469,11 +475,7 @@ function App() {
                       <textarea
                         value={inputValues[key]}
                         onChange={e => updateInputValue(key, e.target.value, 'array')}
-                        placeholder={
-                          sch.placeholder != null
-                            ? String(sch.placeholder)
-                            : 'Enter one item per line (or paste JSON array)'
-                        }
+                        placeholder={sch.placeholder != null ? String(sch.placeholder) : 'Enter one item per line (or paste JSON array)'}
                       />
                     ) : (
                       <input
@@ -567,7 +569,7 @@ function App() {
           )}
         </fieldset>
       </form>
-    </div>
+    </>
   );
 }
 

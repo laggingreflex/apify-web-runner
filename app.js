@@ -73,11 +73,11 @@ function App() {
       addLog(`Authenticated as: ${user?.username || user?.id}`);
 
       addLog(`Fetching actor details for: ${actorId}`);
-      const a = await client.actor(actorId).get();
-      if (!a) throw new Error('Actor not found');
-      setActorDetails(a);
+      const actorDetails = await client.actor(actorId).get();
+      if (!actorDetails) throw new Error('Actor not found');
+      setActorDetails(actorDetails);
 
-      const body = a?.exampleRunInput?.body || '';
+      const body = actorDetails?.exampleRunInput?.body || '';
       setExampleInputBody(body);
 
       // Attempt to fetch build input schema
@@ -85,7 +85,7 @@ function App() {
       let requiredList = [];
       try {
         addLog('Getting input schema from latest build...');
-        const latestBuildId = a?.taggedBuilds?.latest?.buildId;
+        const latestBuildId = actorDetails?.taggedBuilds?.latest?.buildId;
         console.debug(`latestBuildId:`, latestBuildId);
         if (latestBuildId) {
           const build = await client.build(latestBuildId).get();

@@ -119,8 +119,10 @@ function App() {
             placeholder: prop?.placeholderValue ?? prop?.prefill,
             raw: prop,
           };
+          // console.log(entry)
           schemaMap[key] = entry;
           const _default = prop?.default ?? prop?.placeholderValue ?? prop?.prefill;
+          // console.log(`_default:`, _default)
           let v = _default;
           if (entry.type === 'object') {
             try {
@@ -130,7 +132,7 @@ function App() {
             }
           } else if (entry.type === 'array') {
             // Store arrays one-per-line for improved textarea UX
-            if (Array.isArray(v)) valuesMap[key] = v.map(x => (x == null ? '' : String(x))).join('\n');
+            if (Array.isArray(v)) valuesMap[key] = v.map(x => (x == null ? '' : JSON.stringify(x))).join('\n');
             else if (typeof v === 'string') valuesMap[key] = v; // could be newline-delimited or JSON
             else valuesMap[key] = '';
           } else if (entry.type === 'boolean') {
@@ -179,6 +181,7 @@ function App() {
 
       setInputSchema(schemaMap);
       setInputValues(valuesMap);
+      // console.log(`valuesMap:`, valuesMap);
       addLog('Actor loaded. Configure inputs below, then run.');
     } catch (err) {
       console.error(err);
@@ -286,6 +289,7 @@ function App() {
     try {
       setLoading(true);
       addLog('Starting actor run...');
+      console.log(`input:`, input)
       const r = await client.actor(actorId).call(input);
       setRun(r);
       addLog(`Run status: ${r.status}`);
@@ -422,8 +426,21 @@ function App() {
         {actorDetails && (
           <fieldset>
             <legend>Actor Input</legend>
-            <div className='layoutTwo'>
-              <div className='col'>
+            <div className='layo0utTwo'>
+              <div className='c0ol'>
+                <button type='button' className='action' onClick={handleRunActor} disabled={loading}>
+                  {loading ? 'Running…' : 'Run actor'}
+                </button>
+                {run && (
+                  <div className='panel' style={{ marginTop: '.75rem' }}>
+                    <div className={statusClass}>{run.status}</div>
+                    <div className='small'>
+                      Cost: ${run.usageTotalUsd} · Store: {run.defaultKeyValueStoreId || '—'} · Dataset: {run.defaultDatasetId || '—'}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className='c0ol'>
                 {Object.keys(inputSchema).length === 0 && <p className='muted small'>This actor doesn't define an input schema or example input. You can still run it without parameters.</p>}
                 {Object.entries(inputSchema).map(([key, sch]) => (
                   <label key={key}>
@@ -467,13 +484,15 @@ function App() {
                       />
                     ) : sch.type === 'object' ? (
                       <textarea
-                        defaultValue={inputValues[key]}
+                        // defaultValue={inputValues[key]}
+                        defaultValue={JSON.stringify(inputValues[key], null, 2)}
                         onChange={e => updateInputValue(key, e.target.value, 'object')}
                         placeholder={sch.placeholder != null ? safeStringify(sch.placeholder) : undefined}
                       />
                     ) : sch.type === 'array' ? (
                       <textarea
-                        defaultValue={inputValues[key]}
+                        // className="debug"
+                        defaultValue={JSON.stringify(inputValues[key], null, 2)}
                         onChange={e => updateInputValue(key, e.target.value, 'array')}
                         placeholder={sch.placeholder != null ? String(sch.placeholder) : 'Enter one item per line (or paste JSON array)'}
                       />
@@ -487,19 +506,6 @@ function App() {
                     )}
                   </label>
                 ))}
-              </div>
-              <div className='col'>
-                <button type='button' className='action' onClick={handleRunActor} disabled={loading}>
-                  {loading ? 'Running…' : 'Run actor'}
-                </button>
-                {run && (
-                  <div className='panel' style={{ marginTop: '.75rem' }}>
-                    <div className={statusClass}>{run.status}</div>
-                    <div className='small'>
-                      Cost: ${run.usageTotalUsd} · Store: {run.defaultKeyValueStoreId || '—'} · Dataset: {run.defaultDatasetId || '—'}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </fieldset>

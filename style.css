@@ -92,3 +92,7 @@ button[disabled] { opacity: .55; cursor: not-allowed; }
   body { margin: 1rem; }
   .outputLog { max-height: 300px; }
 }
+
+.debug {
+  border: .5em dotted
+}

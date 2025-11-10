@@ -85,7 +85,7 @@ function App() {
       let requiredList = [];
       try {
         addLog('Getting input schema from latest build...');
-        const latestBuildId = actorDetails?.taggedBuilds?.latest?.buildId;
+        const latestBuildId = (actorDetails.taggedBuilds?.latest || actorDetails.taggedBuilds?.stable || Object.values(actorDetails.taggedBuilds)[0])?.buildId;
         console.debug(`latestBuildId:`, latestBuildId);
         if (latestBuildId) {
           const build = await client.build(latestBuildId).get();
@@ -361,8 +361,8 @@ function App() {
         Easily test out{' '}
         <a href='https://apify.com/store' target='_blank' rel='noreferrer'>
           Apify
-        </a>
-        {' '}actors
+        </a>{' '}
+        actors
       </p>
       <form onSubmit={handleLoadActor}>
         <fieldset>

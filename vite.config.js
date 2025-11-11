@@ -4,6 +4,8 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 // Vite configuration specifying custom dev & preview ports.
 export default defineConfig({
+  root: 'src',
+  // Build output stays at project root /dist
   plugins: [
     react(),
     nodePolyfills({
@@ -28,12 +30,12 @@ export default defineConfig({
     host: 'localhost'
   },
   build: {
-    target: 'esnext'
+    target: 'esnext',
+    outDir: '../dist',
+    emptyOutDir: true
   },
   optimizeDeps: {
     include: ['events', 'util', 'process', 'buffer']
   },
-  define: {
-    'process.env': {}
-  }
+  define: { 'process.env': {} }
 });

@@ -11,6 +11,6 @@ Local Vite-powered React app to run and inspect Apify actors without CDN scripts
 ## Notes
 
 - React and apify-client are installed from npm and bundled by Vite.
-- Entry: `index.html` -> `/src/main.jsx` -> `/src/App.jsx`.
+- Entry: `src/index.html` -> `main.jsx` -> `App.jsx`.
 - Styles are imported from `src/style.css`.
-- Previous UMD scripts (React, ReactDOM, Babel, apify-client, apifyCore/workflow/deferred) are no longer referenced by the app. CLI files remain for Node usage.
+- All runtime source (HTML, JS, CSS, CLI) now lives under `src/`. Root only contains config (`package.json`, `vite.config.js`), build output (`dist/`), and docs. Legacy UMD variants removed in favor of ESM modules.

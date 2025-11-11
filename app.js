@@ -1,5 +1,6 @@
 const { useState, useMemo, useEffect } = React;
 const { ApifyClient } = window.Apify || {};
+const ApifyCore = window.ApifyCore;
 
 const rootEl = document.getElementById('root');
 ReactDOM.createRoot(rootEl).render(<App />);
@@ -75,41 +76,26 @@ function App() {
       addLog(`Authenticated as: ${user?.username || user?.id}`);
 
       addLog(`Fetching actor details for: ${actorId}`);
-      const actorDetails = await client.actor(actorId).get();
+      const loaded = await ApifyCore.loadActor(client, actorId);
+      const actorDetails = loaded.actorDetails;
       if (!actorDetails) throw new Error('Actor not found');
       setActorDetails(actorDetails);
 
       const body = actorDetails?.exampleRunInput?.body || '';
       setExampleInputBody(body);
 
-      // Attempt to fetch build input schema
-      let schemaProps = null;
-      let requiredList = [];
-      try {
-        addLog('Getting input schema from latest build...');
-        const latestBuildId = (actorDetails.taggedBuilds?.latest || actorDetails.taggedBuilds?.stable || Object.values(actorDetails.taggedBuilds)[0])?.buildId;
-        console.debug(`latestBuildId:`, latestBuildId);
-        if (latestBuildId) {
-          const build = await client.build(latestBuildId).get();
-          console.debug(`build:`, build);
-          // prefer actorDefinition path
-          schemaProps = build?.actorDefinition?.input?.properties || build?.inputSchema || build?.inputSchema?.properties || null;
-          requiredList = build?.actorDefinition?.input?.required || build?.inputSchema?.required || [];
-        } else {
-          addLog('No latest tagged build ID found.');
-        }
-      } catch (error) {
-        console.error(error);
-        addLog(`Couldn't get latest tagged build: ${error?.message || error}`);
-      }
+      // Fetch schema and defaults from shared core
+      addLog('Resolving input schema/defaults...');
+      const { schemaProps, requiredList, defaultInput, source } = await ApifyCore.getSchemaAndDefaults(client, actorDetails);
+      if (!schemaProps) addLog('No explicit schema found; using example input if available.');
 
       const requiredSet = new Set(Array.isArray(requiredList) ? requiredList : []);
       const schemaMap = {};
       const valuesMap = {};
-      let defaultInput = {};
+  let defaultInputLocal = { ...defaultInput };
 
       if (schemaProps && typeof schemaProps === 'object') {
-        setSchemaSource('build');
+        setSchemaSource(source || 'build');
         addLog('Using input schema from latest build.');
         for (const [key, prop] of Object.entries(schemaProps)) {
           const type = Array.isArray(prop.type) ? prop.type[0] : prop.type;
@@ -124,7 +110,7 @@ function App() {
           };
           // console.log(entry)
           schemaMap[key] = entry;
-          const _default = prop?.default ?? prop?.placeholderValue ?? prop?.prefill;
+          const _default = (defaultInputLocal && defaultInputLocal[key] !== undefined) ? defaultInputLocal[key] : (prop?.default ?? prop?.placeholderValue ?? prop?.prefill);
           // console.log(`_default:`, _default)
           let v = _default;
           if (entry.type === 'object') {
@@ -147,11 +133,11 @@ function App() {
           }
           // Build default input from real defaults when present
           if (v !== undefined) {
-            defaultInput[key] = v;
+            defaultInputLocal[key] = v;
           }
         }
       } else {
-        setSchemaSource('example');
+        setSchemaSource(source || 'example');
         addLog('Falling back to exampleRunInput for dynamic fields.');
         let example = {};
         try {
@@ -161,7 +147,7 @@ function App() {
         }
         if (example && typeof example === 'object') {
           // Use the example object as the default input
-          defaultInput = example;
+          defaultInputLocal = Object.keys(defaultInputLocal).length ? defaultInputLocal : example;
           for (const [key, defVal] of Object.entries(example)) {
             if (Array.isArray(defVal)) {
               schemaMap[key] = { type: 'array' };
@@ -192,7 +178,7 @@ function App() {
       setInputValues(valuesMap);
       // Initialize unified JSON textarea with defaults
       try {
-        setInputJson(JSON.stringify(defaultInput || {}, null, 2));
+        setInputJson(JSON.stringify(defaultInputLocal || {}, null, 2));
       } catch (_) {
         setInputJson('{}');
       }
@@ -244,7 +230,7 @@ function App() {
       setLoading(true);
       addLog('Starting actor run...');
       console.log(`input:`, input);
-      const r = await client.actor(actorId).call(input);
+      const r = await ApifyCore.runActor(client, actorId, input);
       setRun(r);
       addLog(`Run status: ${r.status}`);
       addLog(`Run cost (USD): ${r.usageTotalUsd}`);
@@ -275,29 +261,10 @@ function App() {
     setDatasetItems([]);
     try {
       setLoading(true);
-      if (run.defaultKeyValueStoreId && outputKey) {
-        try {
-          addLog('Fetching KV store output...');
-          const rec = await client.keyValueStore(run.defaultKeyValueStoreId).getRecord(outputKey);
-          const display = rec && typeof rec === 'object' && 'value' in rec ? rec.value : rec;
-          setKvRecord({ meta: rec && rec.contentType ? { contentType: rec.contentType } : null, value: display });
-        } catch (err) {
-          addLog(`KV fetch warning: ${err?.message || err}`);
-        }
-      } else {
-        addLog('No defaultKeyValueStoreId on run or missing Output Key.');
-      }
-
-      if (run.defaultDatasetId) {
-        try {
-          addLog('Fetching dataset items...');
-          const { items } = await client.dataset(run.defaultDatasetId).listItems({ clean: true });
-          setDatasetItems(items || []);
-          addLog(`Fetched ${items?.length || 0} dataset items.`);
-        } catch (err) {
-          addLog(`Dataset fetch warning: ${err?.message || err}`);
-        }
-      }
+      const { kvRecord: kv, datasetItems: items } = await ApifyCore.fetchOutputs(client, run, outputKey);
+      if (kv) setKvRecord(kv);
+      if (items) setDatasetItems(items);
+      addLog(`Fetched outputs. KV: ${kv ? 'yes' : 'no'} · Dataset items: ${items ? items.length : 0}`);
     } finally {
       setLoading(false);
     }

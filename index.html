@@ -1,26 +1,13 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Apify Web Runner</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
   </head>
   <body>
     <div id="root"></div>
-    <!-- React CDN (development) -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- Apify Client UMD bundle exposes window.Apify.ApifyClient -->
-    <script src="https://unpkg.com/apify-client@2.10.0/dist/bundle.js"></script>
-  <!-- Shared core (UMD) and deferred utility -->
-  <script src="apifyCore.js"></script>
-  <script src="deferred.js"></script>
-  <script src="workflow.js"></script>
-    <!-- Babel Standalone to compile JSX in the browser (no bundler) -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Your app entry compiled by Babel in the browser -->
-    <script type="text/babel" data-presets="react" src="app.js"></script>
-    <!-- <form action="/download" method="GET"> <input type="text" name="url" placeholder="Enter YouTube URL" /> <button type="submit">Download</button> </form> -->
-    <link href="style.css" rel="stylesheet" />
+    <script type="module" src="/src/main.jsx"></script>
   </body>
+
 </html>

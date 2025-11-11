@@ -1,35 +1,19 @@
-// CLI implementation using shared workflow & core logic.
-// Try to use project's ../utils prompt, otherwise fallback to readline.
-let prompt;
-try {
-  const u = require('../utils');
-  prompt = u && u.enquire && u.enquire.prompt;
-} catch (_) {
-  prompt = null;
-}
-if (!prompt) {
-  const readline = require('readline');
-  prompt = function (q, defVal) {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const pref = defVal !== undefined && defVal !== null && defVal !== '' ? ` (${defVal})` : '';
-    return new Promise(res => {
-      rl.question(`${q}${pref}: `, ans => {
-        rl.close();
-        res(ans && ans.length ? ans : defVal);
-      });
-    });
-  };
-}
+// CLI implementation using shared workflow & core logic (ESM style).
+// Use enquire-simple at root level for consistent prompts.
+import enquire from 'enquire-simple';
+const { prompt, confirm, password } = enquire;
 
-const { runWorkflow } = require('./workflow');
+import { runWorkflow } from './src/lib/workflow.js';
 
-module.exports = main;
+export default main;
 
 async function main(argv) {
   // Adapter implementing uiAdapter contract for workflow.js
   const uiAdapter = {
     async getConnectionInfo(initial) {
-      const token = await prompt('Apify API Token:', argv.token || initial.token || process.env.APIFY_TOKEN || '');
+      // Prefer masked input for token if available
+      const defaultToken = argv.token || initial.token || process.env.APIFY_TOKEN || '';
+      const token = password ? await password('Apify API Token') : await prompt('Apify API Token:', defaultToken);
       const actorId = await prompt('Apify Actor:', argv.actor || initial.actorId || 'apify/hello-world');
       const outputKey = await prompt('Output Key:', argv.output || initial.outputKey || 'OUTPUT');
       return { token, actorId, outputKey };
@@ -47,8 +31,8 @@ async function main(argv) {
       }
     },
     async confirm(msg) {
-      const ans = await prompt(`${msg} (y/N)`, 'n');
-      return /^y(es)?$/i.test(ans.trim());
+      const ans = await confirm(msg);
+      return typeof ans === 'boolean' ? ans : /^y(es)?$/i.test(String(ans).trim());
     },
     async getInput(schemaProps, defaults, meta) {
       const input = {};
@@ -94,4 +78,20 @@ async function main(argv) {
       console.log('Dataset Items:', outputs.datasetItems ? outputs.datasetItems.length : 0);
     }
   }
+}
+
+// Execute when run directly: `node cli.js`
+import { fileURLToPath } from 'node:url';
+import { basename } from 'node:path';
+const isDirect = process.argv[1] && basename(process.argv[1]) === basename(fileURLToPath(import.meta.url));
+if (isDirect) {
+  // naive argv parse: support --token=, --actor=, --output=
+  const argv = Object.fromEntries(process.argv.slice(2).map(arg => {
+    const m = arg.match(/^--([^=]+)=(.*)$/);
+    return m ? [m[1], m[2]] : [arg.replace(/^--/, ''), true];
+  }));
+  main(argv).catch(err => {
+    console.error(err?.stack || err);
+    process.exitCode = 1;
+  });
 }
